@@ -50,8 +50,9 @@ class DataIngestionService:
             
         self.config_path = script_dir / os.getenv('CONFIG_FILE', 'config.yaml')
         
-        # Construct the search URL
-        self.search_url = f"{self.es_base_url}/weblogs*/_search"
+        # Construct the search URLs
+        self.web_search_url = f"{self.es_base_url}/weblogs*/_search"
+        self.ftp_search_url = f"{self.es_base_url}/ftplogs*/_search"
         
     def initialize(self) -> bool:
         """Initialize service and test connection"""
@@ -70,7 +71,7 @@ class DataIngestionService:
             }
             
             response = requests.post(
-                self.search_url,
+                self.web_search_url,
                 auth=HTTPBasicAuth(self.es_user, self.es_password),
                 headers={"Content-Type": "application/json"},
                 json=test_query,
@@ -96,7 +97,7 @@ class DataIngestionService:
         full_path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Created directory structure: {full_path}")
 
-    def _build_query(self, endpoint_pattern: str, start_time: datetime, end_time: datetime, search_after: Optional[List] = None) -> Dict:
+    def _build_query(self, pattern: str, start_time: datetime, end_time: datetime, is_ftp: bool, search_after: Optional[List] = None) -> Dict:
         query = {
             "size": 5000,  # Maximum size per request
             "sort": [
@@ -116,7 +117,7 @@ class DataIngestionService:
                         },
                         {
                             "match_phrase_prefix": {
-                                "endpoint": endpoint_pattern
+                                "file_name" if is_ftp else "endpoint": pattern
                             }
                         }
                     ]
@@ -152,13 +153,17 @@ class DataIngestionService:
                     from_size = 0
                     search_after = None
 
+                    is_ftp = "www.ebi.ac.uk" not in endpoint
+                    search_url = self.ftp_search_url if is_ftp else self.web_search_url
+                    logger.info(f"Using {search_url} for {'FTP' if is_ftp else 'web'} endpoint: {endpoint}")
+
                     while True:
-                        query = self._build_query(endpoint, start_time, end_time, search_after)
+                        query = self._build_query(endpoint, start_time, end_time, is_ftp, search_after)
                         logger.debug(f"Query for {endpoint}: {json.dumps(query, indent=2)}")
                     
                         try:
                             response = requests.post(
-                                self.search_url,
+                                search_url,
                                 auth=HTTPBasicAuth(self.es_user, self.es_password),
                                 headers={"Content-Type": "application/json"},
                                 json=query,
