@@ -153,7 +153,7 @@ class DataIngestionService:
                     from_size = 0
                     search_after = None
 
-                    is_ftp = "www.ebi.ac.uk" not in endpoint
+                    is_ftp = "www" not in endpoint
                     search_url = self.ftp_search_url if is_ftp else self.web_search_url
                     logger.info(f"Using {search_url} for {'FTP' if is_ftp else 'web'} endpoint: {endpoint}")
 
