@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urlparse, parse_qs
@@ -25,12 +26,13 @@ class RequestData:
     parameters: Dict[str, str]
 
 class DatabaseLoader:
-    def __init__(self, db_config: Dict[str, str]):
+    def __init__(self, db_config: Dict[str, str], staging_dir: Path):
         """Initialize database connection and prepare lookup caches"""
         self.db_config = db_config
         self.conn = None
         self.cursor = None
-        
+        self.staging_dir = staging_dir
+        self.processed_dir = staging_dir.parent / 'processed-logs'
         # In-memory caches for lookup tables
         self.resource_cache = {}  # name -> id
         self.endpoint_cache = {}  # (path, resource_id) -> id
@@ -238,6 +240,19 @@ class DatabaseLoader:
             if requests_batch:
                 self._process_batch(requests_batch, parameters_batch)
 
+            # After successful processing, move to processed directory
+            relative_path = file_path.relative_to(self.staging_dir)
+            
+            # Create the processed file path
+            processed_path = self.processed_dir / relative_path
+            
+            # Create processed directory structure if it doesn't exist
+            processed_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Move the file
+            shutil.move(str(file_path), str(processed_path))
+            logger.info(f"Moved processed file to: {processed_path}")
+
             self.conn.commit()
             logger.info(f"Successfully processed file: {file_path}")
 
@@ -246,9 +261,9 @@ class DatabaseLoader:
             logger.error(f"Error processing file {file_path}: {str(e)}")
             raise
 
-def process_staging_area(staging_dir: Path, loader: DatabaseLoader):
+def process_staging_area(loader: DatabaseLoader):
     """Process the staging area with year/month/day/resource directory structure"""
-
+    staging_dir = loader.staging_dir
     # Iterate through year directories
     for year_dir in staging_dir.glob('*'):
         if not year_dir.is_dir() or not year_dir.name.isdigit():
@@ -290,20 +305,17 @@ def main():
         'password': 'changethis',
         'host': 'pgsql-hlvm-104'
     }
-    
-    # Initialize loader
-    loader = DatabaseLoader(db_config)
+
+    # Directory containing staged files
+    staging_dir = Path('/Users/haideri/Downloads/staging-area/')
+    logger.info(f"Looking for resources in: {staging_dir}")
+    loader = DatabaseLoader(db_config, staging_dir)
     
     try:
         loader.connect()
         
-        # Directory containing staged files
-        staging_dir = Path('/Users/haideri/Downloads/staging-area/v1')
-        
-        logger.info(f"Looking for resources in: {staging_dir}")
-        
         # Process all resource directories
-        process_staging_area(staging_dir, loader)
+        process_staging_area(loader)
                     
     except Exception as e:
         logger.error(f"Error in main process: {str(e)}")
