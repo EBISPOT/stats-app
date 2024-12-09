@@ -9,6 +9,9 @@ import json
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import contextmanager
+import os
+from dotenv import load_dotenv
+from pathlib import Path
 
 # Logger configuration
 logger = logging.getLogger("api_logger")
@@ -19,9 +22,12 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+# Load .env from root directory
+root_dir = Path(__file__).resolve().parent.parent
+load_dotenv(root_dir / '.env')
 
-# Database configuration
-DATABASE_URL = "postgresql://appusestats:changethis@pgsql-hlvm-104/spoappusestatsdev"
+# Database config
+DATABASE_URL = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}/{os.getenv('DB_NAME')}"
 
 # API Configuration
 app = FastAPI(title="App Stats API", version="1.0.0")
@@ -256,38 +262,28 @@ def search_stats(
 ):
     """
     Search endpoint statistics with filters for resource, date range, endpoint, and parameters.
-    Parameters should be provided as a JSON string of key-value pairs.
+    Supports 'ALL' as resource_name to query across all resources and 'ALL' for country to query all countries.
     """
     try:
         with get_db() as db:
-            # Base query
-            # if resource name is "ALL" then query all resources
-            if resource_name.upper() == "ALL":
+            if resource_name.upper() == 'ALL':
+                # Query for ALL resources
                 query = """
-                WITH filtered_requests AS (
-                    SELECT 
-                        r.id,
-                        r.request_date,
-                        e.path,
-                        res.name,
-                        COUNT(*) OVER() as total_count
-                    FROM requests r
-                    JOIN resources res ON r.resource_id = res.id
-                    JOIN endpoints e ON r.endpoint_id = e.id
+                SELECT 'ALL' as resource_name, COUNT(*) as matching_requests
+                FROM requests r
+                JOIN resources res ON r.resource_id = res.id
+                JOIN endpoints e ON r.endpoint_id = e.id
+                WHERE 1=1
                 """
             else:
+                # Query for specific resource
                 query = """
-                WITH filtered_requests AS (
-                SELECT 
-                    r.id,
-                    r.request_date,
-                    e.path,
-                    COUNT(*) OVER() as total_count
+                SELECT res.name as resource_name, COUNT(*) as matching_requests
                 FROM requests r
                 JOIN resources res ON r.resource_id = res.id
                 JOIN endpoints e ON r.endpoint_id = e.id
                 WHERE res.name = :resource_name
-            """
+                """
             
             # Initialize parameters dictionary
             params = {"resource_name": resource_name.upper()}
@@ -304,9 +300,16 @@ def search_stats(
             if endpoint:
                 query += " AND e.path LIKE :endpoint"
                 params["endpoint"] = f"%{endpoint}%"
-            
-            if country != "ALL":
-                query += " AND EXISTS (SELECT 1 FROM countries c WHERE c.id = r.country_id AND c.name = :country)"
+
+            # Add country filter only if not 'ALL'
+            if country and country.upper() != 'ALL':
+                query += """ 
+                AND EXISTS (
+                    SELECT 1 FROM countries c 
+                    WHERE c.id = r.country_id 
+                    AND c.name = :country
+                )
+                """
                 params["country"] = country
                 
             # Add parameters filter if provided
@@ -333,37 +336,24 @@ def search_stats(
                         status_code=400,
                         detail="Invalid parameters format. Expected JSON string."
                     )
-                    
-            query += """
-            )
-            SELECT 
-                MIN(request_date) as first_request,
-                MAX(request_date) as last_request,
-                COUNT(*) as matching_requests,
-                COUNT(DISTINCT path) as unique_endpoints,
-                MAX(total_count) as total_requests,
-                array_agg(DISTINCT path) as matching_endpoints
-            FROM filtered_requests
-            """
+
+            # Add GROUP BY
+            if resource_name.upper() == 'ALL':
+                query += " GROUP BY 1"
+            else:
+                query += " GROUP BY res.name"
             
             result = db.execute(text(query), params).fetchone()
             
-            if not result or result.matching_requests == 0:
+            if not result or result[1] == 0:
                 raise HTTPException(
                     status_code=404,
                     detail=f"No matching data found for the given criteria"
                 )
                 
             return {
-                "resource": resource_name.upper(),
-                "summary": {
-                    "first_request": result.first_request.isoformat() if result.first_request else None,
-                    "last_request": result.last_request.isoformat() if result.last_request else None,
-                    "matching_requests": result.matching_requests,
-                    "total_requests": result.total_requests,
-                    "unique_endpoints": result.unique_endpoints,
-                },
-                "endpoints": sorted(result.matching_endpoints) if result.matching_endpoints else []
+                "resource": result[0],
+                "matching_requests": result[1]
             }
             
     except Exception as e:

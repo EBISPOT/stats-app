@@ -32,7 +32,8 @@ class DataIngestionService:
         
     def _load_environment(self):
         script_dir = Path(__file__).resolve().parent
-        env_path = script_dir / '.env'
+        root_dir = script_dir.parent
+        env_path = root_dir / '.env'
         
         if not env_path.exists():
             raise ConfigurationError(f"Environment file not found at {env_path}")
@@ -40,15 +41,24 @@ class DataIngestionService:
         load_dotenv(env_path)
         
         # Set up configuration
-        self.es_base_url = os.getenv('ES_HOST', 'http://api.meter.ebi.ac.uk:443')
-        self.es_user = os.getenv('ES_USER', 'readall')
-        self.es_password = os.getenv('ES_PASSWORD', 'readall')
-        self.output_dir = os.getenv('OUTPUT_DIR')
+        self.es_base_url = os.getenv('ES_HOST')
+        self.es_user = os.getenv('ES_USER')
+        self.es_password = os.getenv('ES_PASSWORD')
+        self.output_dir = os.getenv('STAGING_AREA_PATH')
         
-        if not self.output_dir:
-            raise ConfigurationError("OUTPUT_DIR environment variable is required")
+        # Check for required environment variables
+        required_vars = {
+            'ES_HOST': self.es_base_url,
+            'ES_USER': self.es_user,
+            'ES_PASSWORD': self.es_password,
+            'STAGING_AREA_PATH': self.output_dir
+        }
+    
+        missing_vars = [var for var, value in required_vars.items() if not value]
+        if missing_vars:
+            raise ConfigurationError(f"Missing required environment variables: {', '.join(missing_vars)}")
             
-        self.config_path = script_dir / os.getenv('CONFIG_FILE', 'config.yaml')
+        self.config_path = script_dir.parent / os.getenv('CONFIG_FILE', 'config.yaml')
         
         # Construct the search URLs
         self.web_search_url = f"{self.es_base_url}/weblogs*/_search"

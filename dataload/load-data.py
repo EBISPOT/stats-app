@@ -9,6 +9,20 @@ import psycopg2
 from psycopg2.extras import execute_values
 from dataclasses import dataclass
 from collections import defaultdict
+import os
+from dotenv import load_dotenv
+
+# Load .env from root directory
+root_dir = Path(__file__).resolve().parent.parent
+load_dotenv(root_dir / '.env')
+
+def get_db_config():
+    return {
+        'dbname': os.getenv('DB_NAME'),
+        'user': os.getenv('DB_USER'),
+        'password': os.getenv('DB_PASSWORD'),
+        'host': os.getenv('DB_HOST')
+    }
 
 # Set up logging
 logging.basicConfig(
@@ -298,16 +312,11 @@ def process_staging_area(loader: DatabaseLoader):
                             continue
 
 def main():
-    # Database configuration
-    db_config = {
-        'dbname': 'spoappusestatsdev',
-        'user': 'appusestats',
-        'password': 'changethis',
-        'host': 'pgsql-hlvm-104'
-    }
+    # Get database configuration
+    db_config = get_db_config()
 
     # Directory containing staged files
-    staging_dir = Path('/Users/haideri/Downloads/staging-area/')
+    staging_dir = Path(os.getenv('STAGING_AREA_PATH'))
     logger.info(f"Looking for resources in: {staging_dir}")
     loader = DatabaseLoader(db_config, staging_dir)
     
