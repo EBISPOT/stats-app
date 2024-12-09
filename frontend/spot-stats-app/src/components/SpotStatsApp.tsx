@@ -31,28 +31,16 @@ interface Parameter {
   value: string;
 }
 
-interface SearchResult {
-  resource: string;
-  summary: {
-    first_request: string;
-    last_request: string;
-    matching_requests: number;
-    total_requests: number;
-    unique_endpoints: number;
-  };
-  endpoints: string[];
-}
-
 const SpotStatsApp = () => {
   // State management
-  const [resources, setResources] = useState<string[]>([]);
-  const [selectedResource, setSelectedResource] = useState<string>('');
+  const [resources, setResources] = useState(['ALL']);
+  const [selectedResource, setSelectedResource] = useState('ALL');
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [endpoint, setEndpoint] = useState('');
   const [parameters, setParameters] = useState<Parameter[]>([{ key: '', value: '' }]);
-  const [countries, setCountries] = useState<string[]>([]);
-  const [selectedCountry, setSelectedCountry] = useState<string>('');
+  const [countries, setCountries] = useState(['ALL']);
+  const [selectedCountry, setSelectedCountry] = useState('ALL');
   
   // Loading and error states
   const [isLoadingResources, setIsLoadingResources] = useState(true);
@@ -61,7 +49,12 @@ const SpotStatsApp = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Results state
-  const [searchResults, setSearchResults] = useState<SearchResult | null>(null);
+  interface SearchResults {
+    resource: string;
+    matching_requests: number;
+  }
+  
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
 
   useEffect(() => {
     fetchResources();
@@ -123,7 +116,7 @@ const SpotStatsApp = () => {
       if (endpoint) {
         queryParams.append('endpoint', endpoint);
       }
-      if (selectedCountry) {
+      if (selectedCountry !== 'ALL') {
         queryParams.append('country', selectedCountry);
       }
 
@@ -182,7 +175,6 @@ const SpotStatsApp = () => {
         </h1>
 
         <div className="grid gap-6 md:grid-cols-2">
-          {/* Search Form */}
           <Card>
             <CardHeader>
               <CardTitle>Query Statistics</CardTitle>
@@ -205,7 +197,7 @@ const SpotStatsApp = () => {
                   <SelectContent>
                     {resources.map((resource) => (
                       <SelectItem key={resource} value={resource}>
-                        {resource}
+                        {resource === 'ALL' ? 'All Resources' : resource}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -214,24 +206,24 @@ const SpotStatsApp = () => {
 
               {/* Country Selection */}
               <div className="space-y-2">
-  <Label htmlFor="country">Country</Label>
-  <Select
-    value={selectedCountry}
-    onValueChange={setSelectedCountry}
-    disabled={isLoadingCountries}
-  >
-    <SelectTrigger className="w-full">
-      <SelectValue placeholder="Select a country (optional)" />
-    </SelectTrigger>
-    <SelectContent>
-      {countries.map((country) => (
-        <SelectItem key={country} value={country}>
-          {country}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-</div>
+                <Label htmlFor="country">Country</Label>
+                <Select
+                  value={selectedCountry}
+                  onValueChange={setSelectedCountry}
+                  disabled={isLoadingCountries}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a country" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {countries.map((country) => (
+                      <SelectItem key={country} value={country}>
+                        {country === 'ALL' ? 'All Countries' : country}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
               {/* Date Range Selection */}
               <div className="grid grid-cols-2 gap-4">
@@ -251,7 +243,7 @@ const SpotStatsApp = () => {
                       <CalendarComponent
                         mode="single"
                         selected={startDate || undefined}
-                        onSelect={(date: Date | undefined) => setStartDate(date || null)}
+                        onSelect={(date) => setStartDate(date || null)}
                         initialFocus
                       />
                     </PopoverContent>
@@ -274,7 +266,7 @@ const SpotStatsApp = () => {
                       <CalendarComponent
                         mode="single"
                         selected={endDate || undefined}
-                        onSelect={(date: Date | undefined) => setEndDate(date || null)}
+                        onSelect={(date) => setEndDate(date || null)}
                         initialFocus
                       />
                     </PopoverContent>
@@ -339,7 +331,7 @@ const SpotStatsApp = () => {
               <Button 
                 className="w-full"
                 onClick={handleSearch}
-                disabled={!selectedResource || isSearching}
+                disabled={isSearching}
               >
                 {isSearching ? (
                   <>
@@ -361,55 +353,20 @@ const SpotStatsApp = () => {
             </CardContent>
           </Card>
 
-          {/* Results Display */}
+          {/* Simplified Results Display */}
           {searchResults && (
             <Card>
               <CardHeader>
                 <CardTitle>Search Results</CardTitle>
                 <CardDescription>
-                  Statistics for {searchResults.resource}
+                  Statistics for {searchResults.resource === 'ALL' ? 'all resources' : searchResults.resource}
+                  {selectedCountry !== 'ALL' && ` in ${selectedCountry}`}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid gap-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <Label className="text-sm text-gray-500">First Request</Label>
-                      <p className="font-medium">
-                        {new Date(searchResults.summary.first_request).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-sm text-gray-500">Last Request</Label>
-                      <p className="font-medium">
-                        {new Date(searchResults.summary.last_request).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <Label className="text-sm text-gray-500">Matching Requests</Label>
-                      <p className="font-medium">{searchResults.summary.matching_requests}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-sm text-gray-500">Unique Endpoints</Label>
-                      <p className="font-medium">{searchResults.summary.unique_endpoints}</p>
-                    </div>
-                  </div>
-
-                  {searchResults.endpoints.length > 0 && (
-                    <div className="space-y-2">
-                      <Label className="text-sm text-gray-500">Matching Endpoints</Label>
-                      <div className="max-h-60 overflow-auto rounded border p-2">
-                        {searchResults.endpoints.map((endpoint, index) => (
-                          <div key={index} className="py-1 text-sm">
-                            {endpoint}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                <div className="space-y-1">
+                  <Label className="text-sm text-gray-500">Total Requests</Label>
+                  <p className="text-3xl font-bold">{searchResults.matching_requests.toLocaleString()}</p>
                 </div>
               </CardContent>
             </Card>
