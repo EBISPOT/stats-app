@@ -5,3 +5,7 @@
 
 # Keep example file
 !.env.example
+
+venv
+.idea
+.DS_Store
