@@ -72,7 +72,12 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Start the FastAPI server:
+3. Navigate to the backend directory:
+```bash
+cd backend
+```
+
+4. Start the FastAPI server:
 ```bash
 python run.py
 ```
