@@ -12,17 +12,6 @@ The SPOT Apps Stats Service consists of three main components:
 2. **Data Processing Service**: Processes staged logs and loads them into a PostgreSQL database
 3. **Web Application**: Provides a user interface for querying the statistics
 
-## Features
-
-- Collection and analysis of access logs from multiple SPOT applications
-- Tracking of endpoint usage patterns
-- Parameter analysis for API endpoints
-- Geographic distribution of requests
-- Customizable date range queries
-- Resource-specific analytics
-- Real-time search capabilities
-- Interactive data visualization
-
 ## Architecture
 
 The application follows a modern, scalable architecture:
@@ -75,7 +64,7 @@ STAGING_AREA_PATH=./staging
 1. Create and activate a virtual environment:
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+source venv/bin/activate
 ```
 
 2. Install dependencies:
