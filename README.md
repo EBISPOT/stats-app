@@ -59,7 +59,7 @@ STAGING_AREA_PATH=./staging
 
 `STAGING_AREA_PATH` is where the logs downloaded from the elastic search will be stored.
 
-### Backend Setup
+### Python Virtual Environment Setup
 
 1. Create and activate a virtual environment:
 ```bash
@@ -71,13 +71,30 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+### Fetch Data from ElasticSearch
+```bash
+cd dataload
+python fetch-data-from-api.py {no_of_days_param}
+```
 
-3. Navigate to the backend directory:
+You can pass an optional `no_of_days_param` to the script. If nothing is provided the value will be 1 day i.e. 24 Hours
+
+
+### Load Data to DB Setup
+
+```bash
+cd dataload
+python load-data.py
+```
+
+### Backend Setup
+
+1. Navigate to the backend directory:
 ```bash
 cd backend
 ```
 
-4. Start the FastAPI server:
+2. Start the FastAPI server:
 ```bash
 python run.py
 ```

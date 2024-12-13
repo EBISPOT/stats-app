@@ -1,6 +1,7 @@
 import yaml
 import json
 import logging
+import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
 import os
@@ -18,6 +19,12 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Fetch logs from Elasticsearch')
+    parser.add_argument('days', type=int, nargs='?', default=1,
+                       help='Number of days to look back for data (default: 1)')
+    return parser.parse_args()
 
 class ConfigurationError(Exception):
     """Raised when there's an error in configuration"""
@@ -138,16 +145,16 @@ class DataIngestionService:
             query["search_after"] = search_after
         return query
 
-    def fetch_logs(self, start_time: Optional[datetime] = None, end_time: Optional[datetime] = None) -> bool:
+    def fetch_logs(self, days_back: int = 1) -> bool:
         """Fetch logs from Elasticsearch"""
         if not self.config:
             logger.error("Service not initialized. Call initialize() first.")
             return False
         
-        if not end_time:
-            end_time = datetime.now().astimezone()
-        if not start_time:
-            start_time = end_time - timedelta(days=1)
+        end_time = datetime.now().astimezone()
+        start_time = end_time - timedelta(days=days_back)
+
+        logger.info(f"Fetching logs from {start_time} to {end_time} ({days_back} day(s))")
         
         try:
             for resource in self.config.get('resources', []):
@@ -261,12 +268,12 @@ class DataIngestionService:
 def main():
     if os.getenv('DEBUG', '').lower() in ('true', '1', 'yes'):
         logging.getLogger().setLevel(logging.DEBUG)
-    
     try:
+        args = parse_args()
         service = DataIngestionService()
         if service.initialize():
-            if service.fetch_logs():
-                logger.info("Log ingestion completed successfully")
+            if service.fetch_logs(days_back=args.days):
+                logger.info(f"Log ingestion completed successfully for the last {args.days} day(s)")
                 return 0
             else:
                 logger.error("Log ingestion failed")
