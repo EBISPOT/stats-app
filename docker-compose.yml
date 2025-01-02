@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  backend:
+    container_name: spot-stats-backend
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./backend:/app
+    networks:
+      - spot-stats-network
+
+networks:
+  spot-stats-network:
+    driver: bridge

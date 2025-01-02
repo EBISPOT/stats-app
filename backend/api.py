@@ -50,7 +50,7 @@ class ResourceStats(BaseModel):
     resource_name: str
     total_requests: int
     unique_endpoints: int
-    top_endpoints: List[Dict[str, any]]
+    top_endpoints: List[Dict[str, str]]
 
 class ParameterStats(BaseModel):
     param_name: str

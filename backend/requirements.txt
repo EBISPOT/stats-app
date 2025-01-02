@@ -1,0 +1,18 @@
+# Web Framework
+fastapi>=0.104.0
+uvicorn>=0.24.0
+# Database
+psycopg2-binary>=2.9.9
+sqlalchemy>=2.0.23
+# API and Data Processing
+requests>=2.31.0
+urllib3>=2.1.0
+# Configuration and Environment
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+# Authentication
+pyjwt>=2.8.0
+# CORS Support
+starlette>=0.27.0
+# FastAPI Dependencies
+pydantic>=2.0.0
