@@ -18,6 +18,20 @@ services:
     networks:
       - spot-stats-network
 
+  frontend:
+    container_name: spot-stats-frontend
+    build:
+      context: ./frontend/spot-stats-app
+      dockerfile: Dockerfile
+      args:
+        BACKEND_API_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - spot-stats-network
+
 networks:
   spot-stats-network:
     driver: bridge

@@ -4,7 +4,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*' // Replace with your actual backend URL
+        destination: `${process.env.BACKEND_API_URL}/api/:path*`, // Use the build-time environment variable
       }
     ]
   }
