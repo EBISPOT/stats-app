@@ -28,6 +28,7 @@ CREATE TABLE requests (
                           endpoint_id INTEGER NOT NULL REFERENCES endpoints(id),
                           request_timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
                           country_id INTEGER REFERENCES countries(id),
+                          PRIMARY KEY (id, request_date),
                           UNIQUE (request_date, request_timestamp, endpoint_id, resource_id)
 ) PARTITION BY RANGE (request_date);
 
@@ -41,16 +42,17 @@ CREATE TABLE parameters (
                             FOREIGN KEY (request_id, request_date) REFERENCES requests(id, request_date) ON DELETE CASCADE
 );
 
-Drop table requests;
+-- Create yearly partitions with broader ranges
+CREATE TABLE requests_2024 PARTITION OF requests
+    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
+CREATE TABLE requests_2025 PARTITION OF requests
+    FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
+CREATE TABLE requests_2026 PARTITION OF requests
+    FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');
+CREATE TABLE requests_2027 PARTITION OF requests
+    FOR VALUES FROM ('2027-01-01') TO ('2028-01-01');
 
--- Create partitions for requests (example for 2024)
-CREATE TABLE requests_2024_01 PARTITION OF requests
-    FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
-CREATE TABLE requests_2024_02 PARTITION OF requests
-    FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
-CREATE TABLE requests_2024_11 PARTITION OF requests
-    FOR VALUES FROM ('2024-11-01') TO ('2024-11-30');
--- ... continue for other months
+
 
 -- Create indexes for lookup tables
 CREATE INDEX idx_resources_name ON resources(name);
@@ -69,46 +71,6 @@ CREATE INDEX idx_requests_timestamp ON requests(request_timestamp);
 CREATE INDEX idx_parameters_request ON parameters(request_id, request_date);
 CREATE INDEX idx_parameters_lookup ON parameters(request_id, request_date, param_name, param_value);
 CREATE INDEX idx_parameters_name_value ON parameters(param_name, param_value);
-
--- Create a function to automatically create new partitions
-CREATE OR REPLACE FUNCTION create_partition_if_not_exists()
-    RETURNS trigger AS $$
-DECLARE
-    partition_date DATE;
-    partition_name TEXT;
-    start_date DATE;
-    end_date DATE;
-BEGIN
-    partition_date := DATE_TRUNC('month', NEW.request_date);
-    partition_name := 'requests_' || TO_CHAR(partition_date, 'YYYY_MM');
-    start_date := partition_date;
-    end_date := partition_date + INTERVAL '1 month';
-
-    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = partition_name) THEN
-        EXECUTE format(
-                'CREATE TABLE %I PARTITION OF requests FOR VALUES FROM (%L) TO (%L)',
-                partition_name,
-                start_date,
-                end_date
-                );
-
-        -- Create indexes on the new partition
-        EXECUTE format(
-                'CREATE INDEX %I ON %I (request_date)',
-                'idx_' || partition_name || '_date',
-                partition_name
-                );
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger for automatic partition creation
-CREATE TRIGGER create_partition_trigger
-    BEFORE INSERT ON requests
-    FOR EACH ROW
-EXECUTE FUNCTION create_partition_if_not_exists();
 
 -- Create a view for common queries
 CREATE VIEW daily_request_stats AS
