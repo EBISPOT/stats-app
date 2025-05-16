@@ -49,6 +49,8 @@ class DataIngestionService:
         
         # Set up configuration
         self.es_base_url = os.getenv('ES_HOST')
+        # FTP logs have a different base URL
+        self.ftp_base_url = os.getenv('FTP_ES_HOST')
         self.es_user = os.getenv('ES_USER')
         self.es_password = os.getenv('ES_PASSWORD')
         self.output_dir = os.getenv('STAGING_AREA_PATH')
@@ -68,8 +70,8 @@ class DataIngestionService:
         self.config_path = script_dir.parent / os.getenv('CONFIG_FILE', 'config.yaml')
         
         # Construct the search URLs
-        self.web_search_url = f"{self.es_base_url}/weblogs*/_search"
-        self.ftp_search_url = f"{self.es_base_url}/ftplogs*/_search"
+        self.web_search_url = f"{self.es_base_url}/livelogs*/_search"
+        self.ftp_search_url = f"{self.ftp_base_url}/ftplogs*/_search"
         
     def initialize(self) -> bool:
         """Initialize service and test connection"""
@@ -114,12 +116,12 @@ class DataIngestionService:
         full_path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Created directory structure: {full_path}")
 
-    def _build_query(self, pattern: str, start_time: datetime, end_time: datetime, is_ftp: bool, search_after: Optional[List] = None) -> Dict:
+    def _build_query(self, destination_host: str, pattern: str, start_time: datetime, end_time: datetime, is_ftp: bool, search_after: Optional[List] = None) -> Dict:
         query = {
-            "size": 5000,  # Maximum size per request
+            "size": 5000,
             "sort": [
                 {"@timestamp": {"order": "desc"}},
-                {"_id": {"order": "desc"}}  # Secondary sort for consistent pagination
+                {"_id": {"order": "desc"}}
             ],
             "query": {
                 "bool": {
@@ -131,16 +133,35 @@ class DataIngestionService:
                                     "lte": end_time.isoformat()
                                 }
                             }
-                        },
-                        {
-                            "match_phrase_prefix": {
-                                "file_name" if is_ftp else "endpoint": pattern
-                            }
                         }
                     ]
                 }
             }
         }
+    
+        # Add conditional parts based on is_ftp
+        if is_ftp:
+            # FTP query - use file_name only, ignore destination_host
+            query["query"]["bool"]["must"].append({
+                "match_phrase_prefix": {
+                    "file_name": pattern
+                }
+            })
+        else:
+            # HTTP query - use request_uri_path and destination_host
+            query["query"]["bool"]["must"].extend([
+                {
+                    "match": {
+                        "destination_host": destination_host
+                    }                    
+                },
+                {
+                    "match": {
+                        "request_uri_path": pattern
+                    }
+                }
+                ])        
+        
         if search_after:
             query["search_after"] = search_after
         return query
@@ -160,6 +181,7 @@ class DataIngestionService:
             for resource in self.config.get('resources', []):
                 resource_name = resource.get('name')
                 endpoints = resource.get('endpoints', [])
+                destination_host = resource.get('destination-host')
                 
                 logger.info(f"Processing resource: {resource_name}")
                 
@@ -170,12 +192,12 @@ class DataIngestionService:
                     from_size = 0
                     search_after = None
 
-                    is_ftp = "www" not in endpoint
+                    is_ftp = endpoint.startswith("/pub/databases/")
                     search_url = self.ftp_search_url if is_ftp else self.web_search_url
                     logger.info(f"Using {search_url} for {'FTP' if is_ftp else 'web'} endpoint: {endpoint}")
 
                     while True:
-                        query = self._build_query(endpoint, start_time, end_time, is_ftp, search_after)
+                        query = self._build_query(destination_host, endpoint, start_time, end_time, is_ftp, search_after)
                         logger.debug(f"Query for {endpoint}: {json.dumps(query, indent=2)}")
                     
                         try:
@@ -193,7 +215,6 @@ class DataIngestionService:
 
                             if not hits:
                                 break
-
                             
                             batch_size = len(hits)
                             all_logs.extend(hits)

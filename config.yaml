@@ -1,27 +1,35 @@
 # config.yaml
-resources:
-  - name: OLS
-    endpoints:
-      - "www.ebi.ac.uk/ols4*"
-  - name: GENTAR_TRACKER_API
-    endpoints:
-      - "www.gentar.org/tracker-api*"
-  - name: GENTAR_TRACKER
-    endpoints:
-      - "www.gentar.org/tracker*"
-  - name: IMMUNOPHENOTYPE
-    endpoints:
-      - "www.immunophenotype.org*"
-  - name: MI_DEV
-    endpoints:
-      - "wwwdev.ebi.ac.uk/mi*"
-  - name: MI
-    endpoints:
-      - "www.ebi.ac.uk/mi*"
-  - name: CANCER_MODELS
-    endpoints:
-      - "www.cancermodels.org*"
-  - name: GWAS
-    endpoints:
-      - "www.ebi.ac.uk/gwas*"
-      - "/pub/databases/gwas*"
+ resources:
+   - name: GENTAR_TRACKER_API
+     destination-host: "www.gentar.org"
+     endpoints:
+      - "/tracker-api*"
+   - name: GENTAR_TRACKER
+     destination-host: "www.gentar.org"
+     endpoints:
+      - "/tracker*"
+   - name: IMMUNOPHENOTYPE
+     destination-host: "www.immunophenotype.org"
+     endpoints:
+      - "*"
+   - name: MI_DEV
+     destination-host: "wwwdev.ebi.ac.uk"
+     endpoints:
+      - "/mi*"
+   - name: MI
+     destination-host: "www.ebi.ac.uk"
+     endpoints:
+      - "/mi*"
+   - name: CANCER_MODELS
+     destination-host: "www.cancermodels.org"
+     endpoints:
+      - "*"
+   - name: OLS
+     destination-host: "www.ebi.ac.uk"
+     endpoints:
+       - "/ols4*"
+   - name: GWAS
+     destination-host: "www.ebi.ac.uk"
+     endpoints:
+       - "/gwas*"
+       - "/pub/databases/gwas*"

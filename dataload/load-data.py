@@ -123,21 +123,20 @@ class DatabaseLoader:
         source = entry.get('_source', {})
         
         # Extract endpoint
-        endpoint = source.get('endpoint', '')
-        
+        endpoint = source.get('request_uri_path', '')
+        request_params = source.get('request_query', '')
         # Parse URL parameters (only if '?' exists in endpoint)
         parameters = {}
-        if '?' in endpoint:
-            base_url, query = endpoint.split('?', 1)
+        if '?' in request_params:
+            base_url, query = request_params.split('?', 1)
             parameters = parse_qs(query)
             # Flatten parameters (take first value if multiple exist)
             parameters = {k: v[0] if isinstance(v, list) else v 
                         for k, v in parameters.items()}
-            endpoint = base_url
         
         # Extract timestamp and country
         timestamp = datetime.fromisoformat(source.get('@timestamp').replace('Z', '+00:00'))
-        country = source.get('ip2location', {}).get('country_long')
+        country = source.get('geoip', {}).get('country_name')
         
         return RequestData(
             endpoint=endpoint,
@@ -171,13 +170,14 @@ class DatabaseLoader:
             endpoint_to_request = {endpoint_id: request_id for request_id, endpoint_id in request_ids}
 
             # Update parameters with actual request IDs and insert
-            if parameters_batch:
+            if parameters_batch and request_ids:
                 param_values = [
                     (endpoint_to_request[param['endpoint_id']],
                      param['request_date'],
                      param['param_name'],
                      param['param_value'])
                     for param in parameters_batch
+                    if param['endpoint_id'] in endpoint_to_request
                 ]
 
                 execute_values(
