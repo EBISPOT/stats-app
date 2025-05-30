@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse, parse_qs
 import psycopg2
 from psycopg2.extras import execute_values
@@ -38,6 +38,16 @@ class RequestData:
     request_date: datetime
     country: Optional[str]
     parameters: Dict[str, str]
+    
+@dataclass
+class ProcessedRequest:
+    """Data class for request with resolved IDs"""
+    request_date_partition: datetime  # date for partitioning
+    resource_id: int
+    endpoint_id: int
+    request_timestamp: datetime  # full timestamp
+    country_id: Optional[int]
+    parameters: Dict[str, str]
 
 class DatabaseLoader:
     def __init__(self, db_config: Dict[str, str], staging_dir: Path):
@@ -47,9 +57,8 @@ class DatabaseLoader:
         self.cursor = None
         self.staging_dir = staging_dir
         self.processed_dir = staging_dir.parent / 'processed-logs'
-        # In-memory caches for lookup tables
+        # Small caches for resources and countries (these don't grow much)
         self.resource_cache = {}  # name -> id
-        self.endpoint_cache = {}  # (path, resource_id) -> id
         self.country_cache = {}   # name -> id
         
     def connect(self):
@@ -68,6 +77,22 @@ class DatabaseLoader:
             self.cursor.close()
         if self.conn:
             self.conn.close()
+            
+    def _populate_caches(self):
+        """Pre-load resources and countries into memory"""
+        try:
+            # Load resources
+            self.cursor.execute("SELECT id, name FROM resources")
+            self.resource_cache = {name: id for id, name in self.cursor.fetchall()}
+            logger.info(f"Loaded {len(self.resource_cache)} resources into cache")
+            
+            # Load countries
+            self.cursor.execute("SELECT id, name FROM countries")
+            self.country_cache = {name: id for id, name in self.cursor.fetchall()}
+            logger.info(f"Loaded {len(self.country_cache)} countries into cache")
+        except Exception as e:
+            logger.error(f"Failed to populate caches: {e}")
+            raise
 
     def _get_or_create_resource(self, resource_name: str) -> int:
         """Get resource ID from cache or create new resource"""
@@ -83,41 +108,78 @@ class DatabaseLoader:
             )
             self.resource_cache[resource_name] = self.cursor.fetchone()[0]
         return self.resource_cache[resource_name]
-
-    def _get_or_create_endpoint(self, path: str, resource_id: int) -> int:
-        """Get endpoint ID from cache or create new endpoint"""
-        cache_key = (path, resource_id)
-        if cache_key not in self.endpoint_cache:
-            self.cursor.execute(
+    
+    def _batch_get_or_create_endpoints(self, endpoints: Set[str], resource_id: int) -> Dict[str, int]:
+        """Batch process endpoints and return mapping"""
+        if not endpoints:
+            return {}
+        
+        # Insert all endpoints (existing ones will be ignored)
+        values = [(path, resource_id) for path in endpoints]
+        execute_values(
+            self.cursor,
+            """
+            INSERT INTO endpoints (path, resource_id) 
+            VALUES %s
+            ON CONFLICT (path, resource_id) DO NOTHING
+            """,
+            values
+        )
+        
+        # Now fetch all endpoints we need
+        self.cursor.execute(
+            """
+            SELECT id, path 
+            FROM endpoints 
+            WHERE resource_id = %s AND path = ANY(%s)
+            """,
+            (resource_id, list(endpoints))
+        )
+        
+        # Build mapping
+        endpoint_mapping = {path: id for id, path in self.cursor.fetchall()}
+        
+        # Simple debug check
+        if len(endpoint_mapping) != len(endpoints):
+            missing = endpoints - set(endpoint_mapping.keys())
+            logger.error(f"Failed to map {len(missing)} endpoints: {list(missing)[:5]}")
+        
+        return endpoint_mapping
+    
+    def _batch_get_or_create_countries(self, countries: Set[str]) -> Dict[str, int]:
+        """Batch process countries and return mapping"""
+        # Filter out None values and already cached countries
+        new_countries = {c for c in countries if c and c not in self.country_cache}
+        
+        if new_countries:
+            # Insert all new countries (existing ones will be ignored)
+            execute_values(
+                self.cursor,
                 """
-                INSERT INTO endpoints (path, resource_id)
-                VALUES (%s, %s)
-                ON CONFLICT (path, resource_id) DO UPDATE SET path = EXCLUDED.path
-                RETURNING id
+                INSERT INTO countries (name) 
+                VALUES %s
+                ON CONFLICT (name) DO NOTHING
                 """,
-                (path, resource_id)
+                [(c,) for c in new_countries]
             )
-            self.endpoint_cache[cache_key] = self.cursor.fetchone()[0]
-        return self.endpoint_cache[cache_key]
-
-    def _get_or_create_country(self, country_name: str) -> Optional[int]:
-        """Get country ID from cache or create new country"""
-        if not country_name:
-            return None
             
-        if country_name not in self.country_cache:
+            # Fetch all new countries
             self.cursor.execute(
                 """
-                INSERT INTO countries (name)
-                VALUES (%s)
-                ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-                RETURNING id
+                SELECT id, name 
+                FROM countries 
+                WHERE name = ANY(%s)
                 """,
-                (country_name,)
+                (list(new_countries),)
             )
-            self.country_cache[country_name] = self.cursor.fetchone()[0]
-        return self.country_cache[country_name]
-
+            
+            # Update cache with new countries
+            for id, name in self.cursor.fetchall():
+                self.country_cache[name] = id
+        
+        # Return mapping including cached values
+        return {c: self.country_cache[c] for c in countries if c}
+    
     def _process_log_entry(self, entry: Dict) -> RequestData:
         """Process a single log entry and extract relevant information"""
         source = entry.get('_source', {})
@@ -192,11 +254,86 @@ class DatabaseLoader:
         except Exception as e:
             logger.error(f"Error in batch processing: {str(e)}")
             raise
-
+        
+    def _batch_insert_requests_and_parameters(self, requests: List[ProcessedRequest]):
+        """Batch insert requests and their parameters"""
+        if not requests:
+            return
+            
+        # Prepare request data for batch insert
+        request_values = [
+            (
+                r.request_date_partition,
+                r.resource_id,
+                r.endpoint_id,
+                r.request_timestamp,
+                r.country_id
+            )
+            for r in requests
+        ]
+        
+        # Insert requests - let database handle duplicates
+        execute_values(
+            self.cursor,
+            """
+            INSERT INTO requests (request_date, resource_id, endpoint_id, request_timestamp, country_id)
+            VALUES %s
+            ON CONFLICT (request_date, request_timestamp, endpoint_id, resource_id) DO NOTHING
+            RETURNING id, endpoint_id, request_timestamp
+            """,
+            request_values,
+            template='(%s, %s, %s, %s, %s)'
+        )
+        
+        # Get inserted request IDs
+        inserted_requests = self.cursor.fetchall()
+        
+        if not inserted_requests:
+            logger.warning("No new requests inserted (all duplicates)")
+            return
+            
+        # For parameters, we need to match them correctly
+        # Since we might have multiple requests with same endpoint,
+        # we'll insert parameters for ALL successfully inserted requests
+        
+        # Prepare parameter data - only for requests that were actually inserted
+        parameter_values = []
+        for request_id, endpoint_id, timestamp in inserted_requests:
+            # Find the matching request from our original list
+            for r in requests:
+                if r.endpoint_id == endpoint_id and r.request_timestamp == timestamp and r.parameters:
+                    for param_name, param_value in r.parameters.items():
+                        parameter_values.append((
+                            request_id,
+                            r.request_date_partition,
+                            param_name,
+                            str(param_value)
+                        ))
+                    break  # Found the matching request, move to next
+        
+        # Batch insert parameters
+        if parameter_values:
+            try:
+                execute_values(
+                    self.cursor,
+                    """
+                    INSERT INTO parameters (request_id, request_date, param_name, param_value)
+                    VALUES %s
+                    """,
+                    parameter_values,
+                    template='(%s, %s, %s, %s)'
+                )
+                logger.debug(f"Successfully inserted {len(parameter_values)} parameters")
+            except psycopg2.errors.ForeignKeyViolation as e:
+                logger.error(f"Foreign key violation in parameters: {e}")
+                logger.error(f"This should not happen - please check request_mapping logic")
+                raise
+        
     def process_file(self, file_path: Path, resource_name: str):
-        """Process a single JSON file of logs"""
+        """Process a single JSON file of logs using batch processing"""
         logger.info(f"Processing file: {file_path} for resource: {resource_name}")
-
+        failed_records = []
+        
         try:
             # Read and parse JSON file
             with open(file_path, 'r') as f:
@@ -204,71 +341,72 @@ class DatabaseLoader:
 
             # Handle both list and dictionary inputs
             logs = data if isinstance(data, list) else [data]
-
+            total_records = len(logs)
+            
             # Get or create resource ID
             resource_id = self._get_or_create_resource(resource_name)
 
-            # Process logs in batches
-            batch_size = 1000
-            requests_batch = []
-            parameters_batch = []
-
-            for log in logs:
+            # First pass: collect all unique values and parse requests
+            unique_endpoints = set()
+            unique_countries = set()
+            parsed_requests = []
+            
+            for idx, log in enumerate(logs):
                 try:
                     request_data = self._process_log_entry(log)
-
-                    # Get or create related IDs
-                    endpoint_id = self._get_or_create_endpoint(request_data.endpoint, resource_id)
-                    country_id = self._get_or_create_country(request_data.country)
-
-                    # Add request to batch
-                    requests_batch.append((
-                        request_data.request_date.date(),  # store date for partitioning
-                        resource_id,
-                        endpoint_id,
-                        request_data.request_date,  # store full timestamp
-                        country_id
-                    ))
-
-                    # If we have parameters, prepare them for batch insert
-                    if request_data.parameters:
-                        for param_name, param_value in request_data.parameters.items():
-                            parameters_batch.append({
-                                'request_date': request_data.request_date.date(),
-                                'param_name': param_name,
-                                'param_value': param_value,
-                                'endpoint_id': endpoint_id  # Temporary storage for lookup
-                            })
-
-                    # Process batch if it reaches the size limit
-                    if len(requests_batch) >= batch_size:
-                        self._process_batch(requests_batch, parameters_batch)
-                        requests_batch = []
-                        parameters_batch = []
-
+                    unique_endpoints.add(request_data.endpoint)
+                    if request_data.country:
+                        unique_countries.add(request_data.country)
+                    parsed_requests.append(request_data)
                 except Exception as e:
-                    logger.error(f"Error processing log entry: {str(e)}")
+                    logger.error(f"Error processing log entry {idx}: {str(e)}")
+                    failed_records.append(idx)
                     continue
 
-            # Process any remaining records
-            if requests_batch:
-                self._process_batch(requests_batch, parameters_batch)
+            # Log statistics
+            logger.info(f"Found {len(unique_endpoints)} unique endpoints and "
+                       f"{len(unique_countries)} unique countries in {total_records} records")
 
-            # After successful processing, move to processed directory
-            relative_path = file_path.relative_to(self.staging_dir)
-            
-            # Create the processed file path
-            processed_path = self.processed_dir / relative_path
-            
-            # Create processed directory structure if it doesn't exist
-            processed_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Move the file
-            shutil.move(str(file_path), str(processed_path))
-            logger.info(f"Moved processed file to: {processed_path}")
+            # Batch process all lookups
+            endpoint_mapping = self._batch_get_or_create_endpoints(unique_endpoints, resource_id)
+            country_mapping = self._batch_get_or_create_countries(unique_countries)
 
+            # Second pass: create processed requests with resolved IDs
+            processed_requests = []
+            for request_data in parsed_requests:
+                endpoint_id = endpoint_mapping.get(request_data.endpoint)
+                if not endpoint_id:
+                    logger.error(f"Failed to get endpoint ID for: {request_data.endpoint}")
+                    continue
+                    
+                country_id = country_mapping.get(request_data.country) if request_data.country else None
+                
+                processed_requests.append(ProcessedRequest(
+                    request_date_partition=request_data.request_date.date(),
+                    resource_id=resource_id,
+                    endpoint_id=endpoint_id,
+                    request_timestamp=request_data.request_date,
+                    country_id=country_id,
+                    parameters=request_data.parameters
+                ))
+
+            # Batch insert all requests and parameters
+            batch_size = 5000  # Larger batch size since we're doing fewer operations
+            for i in range(0, len(processed_requests), batch_size):
+                batch = processed_requests[i:i + batch_size]
+                self._batch_insert_requests_and_parameters(batch)
+                logger.info(f"Inserted batch {i//batch_size + 1} of {len(processed_requests)//batch_size + 1}")
+
+            # Commit the transaction
             self.conn.commit()
-            logger.info(f"Successfully processed file: {file_path}")
+            
+            # Move file to processed directory only if successfully processed
+            relative_path = file_path.relative_to(self.staging_dir)
+            processed_path = self.processed_dir / relative_path
+            processed_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(file_path), str(processed_path))
+            logger.info(f"Successfully processed {len(processed_requests)}/{total_records} records. "
+                       f"Moved file to: {processed_path}")
 
         except Exception as e:
             self.conn.rollback()
@@ -322,6 +460,7 @@ def main():
     
     try:
         loader.connect()
+        loader._populate_caches()
         
         # Process all resource directories
         process_staging_area(loader)
