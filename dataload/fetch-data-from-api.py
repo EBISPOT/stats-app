@@ -147,6 +147,13 @@ class DataIngestionService:
                     "file_name": pattern
                 }
             })
+        elif pattern == "/*":
+            # If pattern is "/*", we just want the destination host (in case of cancermodels and immunophenotype)
+            query["query"]["bool"]["must"].append({
+                "match": {
+                    "destination_host": destination_host
+                }
+            })
         else:
             # HTTP query - use request_uri_path and destination_host
             query["query"]["bool"]["must"].extend([
