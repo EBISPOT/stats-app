@@ -11,7 +11,7 @@
    - name: IMMUNOPHENOTYPE
      destination-host: "www.immunophenotype.org"
      endpoints:
-      - "*"
+      - "/*"
    - name: MI_DEV
      destination-host: "wwwdev.ebi.ac.uk"
      endpoints:
@@ -23,7 +23,7 @@
    - name: CANCER_MODELS
      destination-host: "www.cancermodels.org"
      endpoints:
-      - "*"
+      - "/*"
    - name: OLS
      destination-host: "www.ebi.ac.uk"
      endpoints:
