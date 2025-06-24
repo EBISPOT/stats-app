@@ -33,3 +33,11 @@
      endpoints:
        - "/gwas*"
        - "/pub/databases/gwas*"
+   - name: ZOOMA
+     destination-host: "www.ebi.ac.uk"
+     endpoints:
+       - "/spot/zooma*"
+   - name: OXO
+     destination-host: "www.ebi.ac.uk"
+     endpoints:
+       - "/spot/oxo*"
