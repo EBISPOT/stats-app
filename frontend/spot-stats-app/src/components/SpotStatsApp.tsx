@@ -41,6 +41,7 @@ const SpotStatsApp = () => {
   const [parameters, setParameters] = useState<Parameter[]>([{ key: '', value: '' }]);
   const [countries, setCountries] = useState(['ALL']);
   const [selectedCountry, setSelectedCountry] = useState('ALL');
+  const [ontologyId, setOntologyId] = useState('');
   
   // Loading and error states
   const [isLoadingResources, setIsLoadingResources] = useState(true);
@@ -55,6 +56,10 @@ const SpotStatsApp = () => {
   }
   
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
+
+  // Check if OLS is selected (case insensitive)
+  const isOlsSelected = selectedResource.toUpperCase() === 'OLS';
+  const hasOntologyId = ontologyId.trim() !== '';
 
   useEffect(() => {
     fetchResources();
@@ -113,7 +118,10 @@ const SpotStatsApp = () => {
       if (endDate) {
         queryParams.append('end_date', endDate.toISOString().split('T')[0]);
       }
-      if (endpoint) {
+      // Handle OLS with ontology id - search for URLs containing the ontology id
+      if (isOlsSelected && hasOntologyId) {
+        queryParams.append('endpoint', ontologyId.toLowerCase()); //when an ontology id is provided, we count all the endpoints containing that ontology id
+      } else if (endpoint) {
         queryParams.append('endpoint', endpoint);
       }
       if (selectedCountry !== 'ALL') {
@@ -204,6 +212,19 @@ const SpotStatsApp = () => {
                 </Select>
               </div>
 
+              {/* Ontology ID - Only show when OLS is selected */}
+              {isOlsSelected && (
+                <div className="space-y-2">
+                  <Label htmlFor="ontologyId">Ontology Id</Label>
+                  <Input
+                    id="ontologyId"
+                    value={ontologyId}
+                    onChange={(e) => setOntologyId(e.target.value)}
+                    placeholder="Enter ontology id (e.g., efo)"
+                  />
+                </div>
+              )}
+
               {/* Country Selection */}
               <div className="space-y-2">
                 <Label htmlFor="country">Country</Label>
@@ -282,6 +303,7 @@ const SpotStatsApp = () => {
                   value={endpoint}
                   onChange={(e) => setEndpoint(e.target.value)}
                   placeholder="Enter endpoint path (e.g., /api/v1/search)"
+                  disabled={isOlsSelected && hasOntologyId}
                 />
               </div>
 
@@ -294,6 +316,7 @@ const SpotStatsApp = () => {
                     variant="outline"
                     size="sm"
                     onClick={addParameter}
+                    disabled={isOlsSelected && hasOntologyId}
                   >
                     Add Parameter
                   </Button>
@@ -306,12 +329,14 @@ const SpotStatsApp = () => {
                       value={param.key}
                       onChange={(e) => updateParameter(index, 'key', e.target.value)}
                       className="flex-1"
+                      disabled={isOlsSelected && hasOntologyId}
                     />
                     <Input
                       placeholder="Value"
                       value={param.value}
                       onChange={(e) => updateParameter(index, 'value', e.target.value)}
                       className="flex-1"
+                      disabled={isOlsSelected && hasOntologyId}
                     />
                     {parameters.length > 1 && (
                       <Button
@@ -319,6 +344,7 @@ const SpotStatsApp = () => {
                         variant="destructive"
                         size="icon"
                         onClick={() => removeParameter(index)}
+                        disabled={isOlsSelected && hasOntologyId}
                       >
                         ×
                       </Button>
