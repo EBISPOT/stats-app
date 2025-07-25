@@ -272,7 +272,6 @@ def search_stats(
                 SELECT 'ALL' as resource_name, COUNT(*) as matching_requests
                 FROM requests r
                 JOIN resources res ON r.resource_id = res.id
-                JOIN endpoints e ON r.endpoint_id = e.id
                 WHERE 1=1
                 """
             else:
@@ -281,12 +280,13 @@ def search_stats(
                 SELECT res.name as resource_name, COUNT(*) as matching_requests
                 FROM requests r
                 JOIN resources res ON r.resource_id = res.id
-                JOIN endpoints e ON r.endpoint_id = e.id
                 WHERE res.name = :resource_name
                 """
             
             # Initialize parameters dictionary
-            params = {"resource_name": resource_name.upper()}
+            params = {}
+            if resource_name.upper() != 'ALL':
+                params["resource_name"] = resource_name.upper()
             
             # Add date range filters
             if start_date:
@@ -296,9 +296,21 @@ def search_stats(
                 query += " AND r.request_date <= :end_date"
                 params["end_date"] = end_date
                 
-            # Add endpoint filter
+            # Add endpoint filter using EXISTS for better performance on large endpoint table
             if endpoint:
-                query += " AND e.path LIKE :endpoint"
+                if resource_name.upper() == 'ALL':
+                    query += """ AND EXISTS (
+                        SELECT 1 FROM endpoints e 
+                        WHERE e.id = r.endpoint_id 
+                        AND e.path LIKE :endpoint
+                    )"""
+                else:
+                    query += """ AND EXISTS (
+                        SELECT 1 FROM endpoints e 
+                        WHERE e.id = r.endpoint_id 
+                        AND e.resource_id = res.id
+                        AND e.path LIKE :endpoint
+                    )"""
                 params["endpoint"] = f"%{endpoint}%"
 
             # Add country filter only if not 'ALL'
