@@ -185,12 +185,11 @@ class DatabaseLoader:
         source = entry.get('_source', {})
         
         # Extract endpoint
-        endpoint = source.get('request_uri_path', '')
-        request_params = source.get('request_query', '')
+        endpoint = source.get('url.path', '')
         # Parse URL parameters (only if '?' exists in endpoint)
         parameters = {}
-        if '?' in request_params:
-            base_url, query = request_params.split('?', 1)
+        if '?' in endpoint:
+            base_url, query = endpoint.split('?', 1)
             parameters = parse_qs(query)
             # Flatten parameters (take first value if multiple exist)
             parameters = {k: v[0] if isinstance(v, list) else v 

@@ -70,7 +70,7 @@ class DataIngestionService:
         self.config_path = script_dir.parent / os.getenv('CONFIG_FILE', 'config.yaml')
         
         # Construct the search URLs
-        self.web_search_url = f"{self.es_base_url}/livelogs*/_search"
+        self.web_search_url = f"{self.es_base_url}/live*/_search"
         self.ftp_search_url = f"{self.ftp_base_url}/ftplogs*/_search"
         
     def initialize(self) -> bool:
@@ -151,7 +151,7 @@ class DataIngestionService:
             # If pattern is "/*", we just want the destination host (in case of cancermodels and immunophenotype)
             query["query"]["bool"]["must"].append({
                 "match": {
-                    "destination_host": destination_host
+                    "destination.address": destination_host
                 }
             })
         else:
@@ -159,12 +159,12 @@ class DataIngestionService:
             query["query"]["bool"]["must"].extend([
                 {
                     "match": {
-                        "destination_host": destination_host
+                        "destination.address": destination_host
                     }                    
                 },
                 {
                     "match": {
-                        "request_uri_path": pattern
+                        "url.path": pattern
                     }
                 }
                 ])        
