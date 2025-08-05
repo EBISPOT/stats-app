@@ -121,7 +121,7 @@ class DataIngestionService:
             "size": 5000,
             "sort": [
                 {"@timestamp": {"order": "desc"}},
-                {"_id": {"order": "desc"}}
+                {"_doc": {"order": "desc"}}
             ],
             "query": {
                 "bool": {
@@ -180,11 +180,16 @@ class DataIngestionService:
             logger.error("Service not initialized. Call initialize() first.")
             return False
         
-        end_time = datetime.now().astimezone()
-        start_time = end_time - timedelta(days=days_back)
-
-        logger.info(f"Fetching logs from {start_time} to {end_time} ({days_back} day(s))")
+        today = datetime.now()
+        # The end of the period is yesterday.
+        end_time = today - timedelta(days=1)
+        # The start of the period is N days ago from today.
+        start_time = today - timedelta(days=days_back)
         
+
+        logger.info(f"Fetching logs for the last {days_back} day(s): "
+                f"from {start_time.strftime('%Y-%m-%d')} to {end_time.strftime('%Y-%m-%d')}")
+
         try:
             for resource in self.config.get('resources', []):
                 resource_name = resource.get('name')
