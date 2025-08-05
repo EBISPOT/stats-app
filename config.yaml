@@ -3,11 +3,11 @@
    - name: GENTAR_TRACKER_API
      destination-host: "www.gentar.org"
      endpoints:
-      - "/tracker-api*"
+      - "/tracker-api/"
    - name: GENTAR_TRACKER
      destination-host: "www.gentar.org"
      endpoints:
-      - "/tracker*"
+      - "/tracker/"
    - name: IMMUNOPHENOTYPE
      destination-host: "www.immunophenotype.org"
      endpoints:
@@ -15,11 +15,11 @@
    - name: MI_DEV
      destination-host: "wwwdev.ebi.ac.uk"
      endpoints:
-      - "/mi*"
+      - "/mi/"
    - name: MI
      destination-host: "www.ebi.ac.uk"
      endpoints:
-      - "/mi*"
+      - "/mi/"
    - name: CANCER_MODELS
      destination-host: "www.cancermodels.org"
      endpoints:
@@ -27,17 +27,17 @@
    - name: OLS
      destination-host: "www.ebi.ac.uk"
      endpoints:
-       - "/ols4*"
+       - "/ols4/"
    - name: GWAS
      destination-host: "www.ebi.ac.uk"
      endpoints:
-       - "/gwas*"
+       - "/gwas/"
        - "/pub/databases/gwas*"
    - name: ZOOMA
      destination-host: "www.ebi.ac.uk"
      endpoints:
-       - "/spot/zooma*"
+       - "/spot/zooma/"
    - name: OXO
      destination-host: "www.ebi.ac.uk"
      endpoints:
-       - "/spot/oxo*"
+       - "/spot/oxo/"
