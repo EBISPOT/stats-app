@@ -150,7 +150,7 @@ class DataIngestionService:
         elif pattern == "/*":
             # If pattern is "/*", we just want the destination host (in case of cancermodels and immunophenotype)
             query["query"]["bool"]["must"].append({
-                "match": {
+                "match_phrase": {
                     "destination.address": destination_host
                 }
             })
@@ -158,17 +158,18 @@ class DataIngestionService:
             # HTTP query - use request_uri_path and destination_host
             query["query"]["bool"]["must"].extend([
                 {
-                    "match": {
+                    "match_phrase": {
                         "destination.address": destination_host
                     }                    
                 },
                 {
-                    "match": {
-                        "url.path": pattern
+                    "prefix": {
+                        "url.path.keyword": {
+                            "value": pattern
+                        }
                     }
                 }
-                ])        
-        
+            ])
         if search_after:
             query["search_after"] = search_after
         return query
