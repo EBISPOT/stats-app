@@ -129,8 +129,8 @@ class DataIngestionService:
                         {
                             "range": {
                                 "@timestamp": {
-                                    "gte": start_time.isoformat(),
-                                    "lte": end_time.isoformat()
+                                    "gte": start_time.strftime('%Y-%m-%d'),
+                                    "lte": end_time.strftime('%Y-%m-%d'),
                                 }
                             }
                         }
