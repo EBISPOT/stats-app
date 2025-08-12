@@ -120,7 +120,7 @@ const SpotStatsApp = () => {
       }
       // Handle OLS with ontology id - search for URLs containing the ontology id
       if (isOlsSelected && hasOntologyId) {
-        queryParams.append('endpoint', ontologyId.toLowerCase()); //when an ontology id is provided, we count all the endpoints containing that ontology id
+        queryParams.append('ontologyId', ontologyId.toLowerCase());
       } else if (endpoint) {
         queryParams.append('endpoint', endpoint);
       }

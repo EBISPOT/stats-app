@@ -74,169 +74,6 @@ def get_resources():
         result = db.execute(text("SELECT name FROM resources ORDER BY name"))
         return [row[0] for row in result]
 
-@app.get("/api/resources/{resource_name}/stats")
-def get_resource_stats(
-    resource_name: str,
-    start_date: date = Query(None),
-    end_date: date = Query(None)
-):
-    """Get statistics for a specific resource"""
-    with get_db() as db:
-        resource_name = resource_name.upper()
-        # Base query for resource stats
-        query = """
-        WITH resource_data AS (
-            SELECT 
-                r.id,
-                e.path,
-                COUNT(*) as request_count
-            FROM requests r
-            JOIN resources res ON r.resource_id = res.id
-            JOIN endpoints e ON r.endpoint_id = e.id
-            WHERE res.name = :resource_name
-            {date_filter}
-            GROUP BY r.id, e.path
-        )
-        SELECT
-            COUNT(*) as total_requests,
-            COUNT(DISTINCT path) as unique_endpoints,
-            ARRAY_AGG(DISTINCT path) FILTER (WHERE path IN (
-                SELECT path
-                FROM resource_data
-                GROUP BY path
-                ORDER BY COUNT(*) DESC
-                LIMIT 5
-            )) as top_endpoints
-        FROM resource_data
-        """
-        
-        params = {"resource_name": resource_name}
-        date_filter = []
-        
-        if start_date:
-            date_filter.append("r.request_date >= :start_date")
-            params["start_date"] = start_date
-        if end_date:
-            date_filter.append("r.request_date <= :end_date")
-            params["end_date"] = end_date
-            
-        if date_filter:
-            query = query.format(date_filter="AND " + " AND ".join(date_filter))
-        else:
-            query = query.format(date_filter="")
-            
-        result = db.execute(text(query), params).fetchone()
-        
-        return {
-            "resource_name": resource_name,
-            "total_requests": result[0],
-            "unique_endpoints": result[1],
-            "top_endpoints": [{"path": path} for path in (result[2] or [])]
-        }
-
-@app.get("/api/resources/{resource_name}/parameters")
-def get_parameter_stats(
-    resource_name: str,
-    start_date: date = Query(None),
-    end_date: date = Query(None)
-):
-    """Get parameter statistics for a resource"""
-    with get_db() as db:
-        query = """
-        SELECT 
-            p.param_name,
-            COUNT(*) as frequency,
-            ARRAY_AGG(p.param_value) FILTER (
-                WHERE param_value IN (
-                    SELECT param_value
-                    FROM parameters p2
-                    WHERE p2.param_name = p.param_name
-                    GROUP BY param_value
-                    ORDER BY COUNT(*) DESC
-                    LIMIT 5
-                )
-            ) as top_values
-        FROM parameters p
-        JOIN requests r ON p.request_id = r.id
-        JOIN resources res ON r.resource_id = res.id
-        WHERE res.name = :resource_name
-        {date_filter}
-        GROUP BY p.param_name
-        ORDER BY frequency DESC
-        LIMIT 10
-        """
-        
-        params = {"resource_name": resource_name}
-        date_filter = []
-        
-        if start_date:
-            date_filter.append("r.request_date >= :start_date")
-            params["start_date"] = start_date
-        if end_date:
-            date_filter.append("r.request_date <= :end_date")
-            params["end_date"] = end_date
-            
-        if date_filter:
-            query = query.format(date_filter="AND " + " AND ".join(date_filter))
-        else:
-            query = query.format(date_filter="")
-            
-        results = db.execute(text(query), params).fetchall()
-        
-        return [
-            {
-                "param_name": row[0],
-                "frequency": row[1],
-                "top_values": [{"value": val} for val in (row[2] or [])]
-            }
-            for row in results
-        ]
-
-@app.get("/api/resources/{resource_name}/timeline")
-def get_request_timeline(
-    resource_name: str,
-    start_date: date = Query(None),
-    end_date: date = Query(None),
-    interval: str = Query("day", regex="^(hour|day|week|month)$")
-):
-    """Get request timeline for a resource"""
-    with get_db() as db:
-        interval_sql = {
-            "hour": "DATE_TRUNC('hour', request_timestamp)",
-            "day": "DATE_TRUNC('day', request_timestamp)",
-            "week": "DATE_TRUNC('week', request_timestamp)",
-            "month": "DATE_TRUNC('month', request_timestamp)"
-        }[interval]
-        
-        query = f"""
-        SELECT 
-            {interval_sql} as time_bucket,
-            COUNT(*) as request_count
-        FROM requests r
-        JOIN resources res ON r.resource_id = res.id
-        WHERE res.name = :resource_name
-        {" AND r.request_date >= :start_date" if start_date else ""}
-        {" AND r.request_date <= :end_date" if end_date else ""}
-        GROUP BY time_bucket
-        ORDER BY time_bucket
-        """
-        
-        params = {"resource_name": resource_name}
-        if start_date:
-            params["start_date"] = start_date
-        if end_date:
-            params["end_date"] = end_date
-            
-        results = db.execute(text(query), params).fetchall()
-        
-        return [
-            {
-                "timestamp": row[0].isoformat(),
-                "count": row[1]
-            }
-            for row in results
-        ]
-
 @app.get("/api/countries", response_model=List[str])
 def get_countries():
     """Get list of all available countries"""
@@ -256,100 +93,115 @@ def search_stats(
     resource_name: str = Query(..., description="Name of the resource to query"),
     start_date: date = Query(None, description="Start date for the search period"),
     end_date: date = Query(None, description="End date for the search period"),
-    endpoint: str = Query(None, description="Endpoint path to filter by"),
+    ontologyId: str = Query(None, description="[OLS ONLY] The presence of an ontology name triggers a comprehensive, optimized search."),
     country: str = Query(None, description="Country to filter by"),
-    parameters: str = Query(None, description="JSON encoded key-value pairs of parameters to filter by")
+    endpoint: str = Query(None, description="General endpoint path to filter by (used only in generic search)."),
+    parameters: str = Query(None, description="JSON encoded key-value pairs of parameters (used only in generic search).")
 ):
     """
-    Search endpoint statistics with filters for resource, date range, endpoint, and parameters.
-    Supports 'ALL' as resource_name to query across all resources and 'ALL' for country to query all countries.
+    Search endpoint statistics. If resource is 'OLS' and an 'ontology' is provided,
+    a comprehensive, optimized search is performed. Otherwise, a generic search is used.
     """
     try:
         with get_db() as db:
-            if resource_name.upper() == 'ALL':
-                # Query for ALL resources
-                query = """
-                SELECT 'ALL' as resource_name, COUNT(*) as matching_requests
-                FROM requests r
-                JOIN resources res ON r.resource_id = res.id
-                JOIN endpoints e ON r.endpoint_id = e.id
-                WHERE 1=1
-                """
-            else:
-                # Query for specific resource
-                query = """
-                SELECT res.name as resource_name, COUNT(*) as matching_requests
-                FROM requests r
-                JOIN resources res ON r.resource_id = res.id
-                JOIN endpoints e ON r.endpoint_id = e.id
-                WHERE res.name = :resource_name
-                """
-            
-            # Initialize parameters dictionary
-            params = {"resource_name": resource_name.upper()}
-            
-            # Add date range filters
+            params = {
+                "resource_name": resource_name,
+                "start_date": start_date,
+                "end_date": end_date,
+                "ontologyId": ontologyId,
+                "country": country,
+            }
+
+            # Helper to build reusable filter clauses for dates and country
+            filter_clauses = ""
             if start_date:
-                query += " AND r.request_date >= :start_date"
-                params["start_date"] = start_date
+                filter_clauses += " AND r.request_date >= :start_date"
             if end_date:
-                query += " AND r.request_date <= :end_date"
-                params["end_date"] = end_date
-                
-            # Add endpoint filter
-            if endpoint:
-                query += " AND e.path LIKE :endpoint"
-                params["endpoint"] = f"%{endpoint}%"
-
-            # Add country filter only if not 'ALL'
+                filter_clauses += " AND r.request_date <= :end_date"
             if country and country.upper() != 'ALL':
-                query += """ 
-                AND EXISTS (
-                    SELECT 1 FROM countries c 
-                    WHERE c.id = r.country_id 
-                    AND c.name = :country
-                )
-                """
-                params["country"] = country
-                
-            # Add parameters filter if provided
-            if parameters:
-                try:
-                    param_dict = json.loads(parameters)
-                    for idx, (key, value) in enumerate(param_dict.items()):
-                        param_key = f"param_key_{idx}"
-                        param_value = f"param_value_{idx}"
-                        query += f"""
-                            AND EXISTS (
-                                SELECT 1 
-                                FROM parameters p 
-                                WHERE p.request_id = r.id 
-                                AND p.request_date = r.request_date
-                                AND p.param_name = :{param_key}
-                                AND p.param_value = :{param_value}
-                            )
-                        """
-                        params[param_key] = key
-                        params[param_value] = value
-                except json.JSONDecodeError:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Invalid parameters format. Expected JSON string."
-                    )
+                filter_clauses += " AND r.country_id = (SELECT id FROM countries WHERE name = :country LIMIT 1)"
 
-            # Add GROUP BY
-            if resource_name.upper() == 'ALL':
-                query += " GROUP BY 1"
-            else:
-                query += " GROUP BY res.name"
+            # =================================================================
+            # OLS COMPREHENSIVE SEARCH
+            # Triggered only when resource_name is OLS and an ontology is specified.
+            # =================================================================
+            if resource_name.upper() == 'OLS' and ontologyId:
+                logger.info(f"Executing OLS Comprehensive Search for ontology: '{ontologyId}'")
+                query = f"""
+                WITH path_matches AS (
+                    -- Find requests where the ontology is in the URL path using tsquery
+                    SELECT r.id 
+                    FROM requests r JOIN endpoints e ON r.endpoint_id = e.id
+                    WHERE r.resource_id = (SELECT id FROM resources WHERE name = 'OLS')
+                    AND e.path_tsv @@ to_tsquery('ols_search.ols_custom', :ontologyId)
+                    {filter_clauses}
+                ),
+                parameter_matches AS (
+                    -- Find requests where the ontology is in the parameters table
+                    SELECT r.id 
+                    FROM requests r JOIN parameters p ON r.id = p.request_id AND r.request_date = p.request_date
+                    WHERE r.resource_id = (SELECT id FROM resources WHERE name = 'OLS')
+                    AND p.param_name = 'ontologyId' AND p.param_value = :ontologyId
+                    {filter_clauses}
+                )
+                -- Combine both sets for a final, unique count
+                SELECT 'OLS' as resource_name, COUNT(DISTINCT final_id) as matching_requests
+                FROM (
+                    SELECT id as final_id FROM path_matches
+                    UNION
+                    SELECT id as final_id FROM parameter_matches
+                ) AS final;
+                """
             
+            # =================================================================
+            # GENERIC SEARCH (FALLBACK FOR ALL OTHER CASES)
+            # =================================================================
+            else:
+                logger.info("Executing Generic Search")
+                params["endpoint"] = f"%{endpoint}%" if endpoint else None
+
+                base_query = ""
+                # Handle 'ALL' resources case
+                if resource_name.upper() == 'ALL':
+                    base_query = "SELECT 'ALL' as resource_name, COUNT(r.id) as matching_requests FROM requests r WHERE 1=1"
+                    if "resource_name" in params: del params["resource_name"]
+                # Handle a specific resource
+                else:
+                    base_query = "SELECT res.name as resource_name, COUNT(r.id) as matching_requests FROM requests r JOIN resources res ON r.resource_id = res.id WHERE res.name = :resource_name"
+
+                generic_filters = filter_clauses
+                
+                # Add endpoint filter if provided
+                if endpoint:
+                    # Join endpoints table only when needed
+                    base_query = base_query.replace(" FROM requests r ", " FROM requests r JOIN endpoints e ON r.endpoint_id = e.id ")
+                    generic_filters += " AND e.path LIKE :endpoint"
+
+                # Add parameters filter if provided
+                if parameters:
+                    try:
+                        param_dict = json.loads(parameters)
+                        for idx, (key, value) in enumerate(param_dict.items()):
+                            param_key = f"param_key_{idx}"
+                            param_value = f"param_value_{idx}"
+                            generic_filters += f" AND EXISTS (SELECT 1 FROM parameters p WHERE p.request_id = r.id AND p.request_date = r.request_date AND p.param_name = :{param_key} AND p.param_value = :{param_value})"
+                            params[param_key] = key
+                            params[param_value] = value
+                    except json.JSONDecodeError:
+                        raise HTTPException(status_code=400, detail="Invalid parameters format.")
+
+                query = base_query + generic_filters
+                
+                # Add GROUP BY for non-'ALL' queries
+                if resource_name.upper() != 'ALL':
+                    query += " GROUP BY res.name"
+
+
+            # Execute the constructed query
             result = db.execute(text(query), params).fetchone()
             
             if not result or result[1] == 0:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"No matching data found for the given criteria"
-                )
+                raise HTTPException(status_code=404, detail="No matching data found for the given criteria")
                 
             return {
                 "resource": result[0],
@@ -358,7 +210,4 @@ def search_stats(
             
     except Exception as e:
         logger.error(f"Error in search_stats: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="An error occurred while processing your request"
-        )
+        raise HTTPException(status_code=500, detail="An error occurred while processing your request")
