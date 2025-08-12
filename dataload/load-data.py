@@ -184,12 +184,13 @@ class DatabaseLoader:
         """Process a single log entry and extract relevant information"""
         source = entry.get('_source', {})
         
+        full_path = source.get('url.path', '')
         # Extract endpoint
-        endpoint = source.get('url.path', '')
+        endpoint = full_path.split('?', 1)[0]
         # Parse URL parameters (only if '?' exists in endpoint)
         parameters = {}
-        if '?' in endpoint:
-            base_url, query = endpoint.split('?', 1)
+        if '?' in full_path:
+            base_url, query = full_path.split('?', 1)
             parameters = parse_qs(query)
             # Flatten parameters (take first value if multiple exist)
             parameters = {k: v[0] if isinstance(v, list) else v 
@@ -197,7 +198,7 @@ class DatabaseLoader:
         
         # Extract timestamp and country
         timestamp = datetime.fromisoformat(source.get('@timestamp').replace('Z', '+00:00'))
-        country = source.get('geoip', {}).get('country_name')
+        country = source.get('geo', {}).get('country_name')
         
         return RequestData(
             endpoint=endpoint,
