@@ -41,8 +41,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database setup
-engine = create_engine(DATABASE_URL)
+# Database setup - with 15 minute query timeout
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={
+        "options": "-c statement_timeout=900000"  # 15 minutes in milliseconds
+    }
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Models
