@@ -45,7 +45,7 @@ app.add_middleware(
 engine = create_engine(
     DATABASE_URL,
     connect_args={
-        "options": "-c statement_timeout=900000"  # 15 minutes in milliseconds
+        "options": "-c statement_timeout=900s"  # 15 minutes timeout for queries
     }
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -163,7 +163,7 @@ def search_stats(
             # =================================================================
             else:
                 logger.info("Executing Generic Search")
-                params["endpoint"] = f"%{endpoint}%" if endpoint else None
+                params["endpoint"] = f"{endpoint}%" if endpoint else None
 
                 base_query = ""
                 # Handle 'ALL' resources case

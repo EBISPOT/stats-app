@@ -137,7 +137,18 @@ const SpotStatsApp = () => {
         queryParams.append('parameters', JSON.stringify(paramsObject));
       }
 
-      const response = await fetch(`/api/stats/search?${queryParams}`);
+      // Create AbortController for 15 minute timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 900000); // 15 minutes
+      
+      const response = await fetch(`/api/stats/search?${queryParams}`, {
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      clearTimeout(timeoutId);
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Search failed');
